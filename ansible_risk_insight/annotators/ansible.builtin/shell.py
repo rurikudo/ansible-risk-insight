@@ -23,11 +23,14 @@ class ShellAnnotator(ModuleAnnotator):
     enabled: bool = True
 
     def run(self, task: TaskCall) -> ModuleAnnotatorResult:
-        cmd = task.args.get("")
-        if cmd is None:
-            cmd = task.args.get("cmd")
-        if cmd is None:
-            cmd = task.args.get("argv")
+        if task.args.get("type") == "simple":
+            cmd = task.args.get("raw")
+        else:
+            cmd = None
+            if cmd is None:
+                cmd = task.args.get("cmd")
+            if cmd is None:
+                cmd = task.args.get("argv")
 
         annotation = RiskAnnotation.init(
             risk_type=DefaultRiskType.CMD_EXEC,

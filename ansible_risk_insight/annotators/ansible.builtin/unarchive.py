@@ -29,7 +29,12 @@ class UnarchiveAnnotator(ModuleAnnotator):
         dest = task.args.get("dest")
         remote_src = task.args.get("remote_src")
 
-        is_remote_src = boolean(remote_src.raw) or boolean(remote_src.templated)
+        is_remote_src = False
+        if remote_src:
+            try:
+                is_remote_src = boolean(remote_src.raw) or boolean(remote_src.templated)
+            except TypeError:
+                is_remote_src = False            
 
         url_sep = "://"
         is_download = False

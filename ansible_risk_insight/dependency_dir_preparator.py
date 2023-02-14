@@ -108,32 +108,29 @@ class DependencyDirPreparator(object):
     # -- out --
     dependency_dirs: list = field(default_factory=list)
 
-    def prepare_dir(self, root_install=True, is_src_installed=False, cache_enabled=False, cache_dir=""):
+    def prepare_dir(self, root_install=True, is_src_installed=False, cache_enabled=True):
         logger.debug("setup base dirs")
-        self.setup_dirs(cache_enabled, cache_dir)
+        self.setup_dirs()
         logger.debug("prepare target dir")
-        self.prepare_root_dir(root_install, is_src_installed)
+        self.prepare_root_dir(root_install, is_src_installed, cache_enabled)
         logger.debug("search dependencies")
         dependencies = find_dependency(self.target_type, self.target_path, self.target_dependency_dir)
         logger.debug("prepare dir for dependencies")
-        self.prepare_dependency_dir(dependencies, cache_enabled, cache_dir)
+        self.prepare_dependency_dir(dependencies, cache_enabled)
         return self.dependency_dirs
 
-    def setup_dirs(self, cache_enabled=False, cache_dir=""):
+    def setup_dirs(self):
         self.download_location = os.path.join(self.root_dir, "archives")
         self.dependency_dir_path = self.root_dir
         # check download_location
         if not os.path.exists(self.download_location):
             os.makedirs(self.download_location)
-        # check cache_dir
-        if cache_enabled and not os.path.exists(cache_dir):
-            os.makedirs(cache_dir)
         # check dependency_dir_path
         if not os.path.exists(self.dependency_dir_path):
             os.makedirs(self.dependency_dir_path)
         return
 
-    def prepare_root_dir(self, root_install=True, is_src_installed=False):
+    def prepare_root_dir(self, root_install=True, is_src_installed=False, cache_enabled=True):
         # install root
         if is_src_installed:
             pass
@@ -147,7 +144,7 @@ class DependencyDirPreparator(object):
                 root_install = False
 
             if root_install:
-                self.src_install()
+                self.src_install(cache_enabled)
                 if not self.silent:
                     logger.debug("install() done")
             else:
@@ -162,7 +159,7 @@ class DependencyDirPreparator(object):
                 self.metadata.hash = hash
         return
 
-    def prepare_dependency_dir(self, dependencies, cache_enabled=False, cache_dir=""):
+    def prepare_dependency_dir(self, dependencies, cache_enabled=True):
         col_dependencies = dependencies.get("dependencies", {}).get("collections", [])
         role_dependencies = dependencies.get("dependencies", {}).get("roles", [])
 
@@ -200,7 +197,7 @@ class DependencyDirPreparator(object):
                 os.makedirs(sub_dependency_dir_path)
 
             if cache_enabled:
-                logger.debug("cache enabled")
+                cache_dir = self.download_location
                 # TODO: handle version
                 is_exist, targz_file = self.is_download_file_exist(LoadType.COLLECTION, col_name, cache_dir)
                 # check cache data
@@ -342,18 +339,18 @@ class DependencyDirPreparator(object):
             self.dependency_dirs.append(asdict(downloaded_dep))
         return
 
-    def src_install(self):
+    def src_install(self, cache_enabled=True):
         try:
             self.setup_tmp_dir()
-            self.root_install(self.tmp_install_dir)
+            self.root_install(cache_enabled)
         finally:
             self.clean_tmp_dir()
         return
 
-    def root_install(self, tmp_src_dir):
+    def root_install(self, cache_enabled=True):
         tmp_src_dir = os.path.join(self.tmp_install_dir.name, "src")
-
         logger.debug("root type is {}".format(self.target_type))
+        install_msg = ""
         if self.target_type == LoadType.PROJECT:
             # install_type = "github"
             # ansible-galaxy install
@@ -369,24 +366,45 @@ class DependencyDirPreparator(object):
             self.metadata.download_url = self.target_name
         elif self.target_type == LoadType.COLLECTION:
             sub_download_location = os.path.join(self.download_location, "collection", self.target_name)
-            install_msg = self.download_galaxy_collection(self.target_name, sub_download_location, version=self.target_version)
-            metadata = self.extract_collections_metadata(install_msg, sub_download_location)
-            metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
-            md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, self.target_name)
+            is_exist, targz_file = self.is_download_file_exist(LoadType.COLLECTION, self.target_name, self.download_location)
+            if is_exist and cache_enabled:
+                # install using tar.gz
+                logger.debug("found cache data {}".format(targz_file))
+                logger.info("found cache data {}".format(targz_file))
+                metadata_file = os.path.join(targz_file.rsplit("/", 1)[0], download_metadata_file)
+                md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, self.target_name)
+            else:
+                install_msg = self.download_galaxy_collection(self.target_name, sub_download_location, version=self.target_version)
+                metadata = self.extract_collections_metadata(install_msg, sub_download_location)
+                metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
+                md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, self.target_name)
             if md:
                 self.install_galaxy_collection_from_reqfile(md.requirements_file, tmp_src_dir)
             dst_src_dir = self.target_path_mappings["src"]
             dependency_dir = tmp_src_dir
             self.metadata = md
-        elif self.target_type == LoadType.ROLE:
-            sub_download_location = os.path.join(self.download_location, "role", self.target_name)
-            install_msg = install_galaxy_target(
-                self.target_name, self.target_type, tmp_src_dir, self.source_repository, target_version=self.target_version
+        elif self.target_type == LoadType.ROLE: 
+            cache_dir_path = os.path.join(
+                self.download_location,
+                "roles",
+                "src",
+                self.target_name,
             )
-            logger.debug("role install msg: {}".format(install_msg))
-            metadata = self.extract_roles_metadata(install_msg)
-            metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
-            md = self.find_target_metadata(LoadType.ROLE, metadata_file, self.target_name)
+            if cache_enabled and os.path.exists(cache_dir_path) and len(os.listdir(cache_dir_path)) != 0:
+                logger.debug("found cache data {}".format(cache_dir_path))
+                logger.info("found cache data {}".format(cache_dir_path))
+                metadata_file = os.path.join(cache_dir_path, download_metadata_file)
+                md = self.find_target_metadata(LoadType.ROLE, metadata_file, self.target_name)
+                self.move_src(cache_dir_path, tmp_src_dir)
+            else:
+                sub_download_location = os.path.join(self.download_location, "role", self.target_name)
+                install_msg = install_galaxy_target(
+                    self.target_name, self.target_type, tmp_src_dir, self.source_repository, target_version=self.target_version
+                )
+                logger.debug("role install msg: {}".format(install_msg))
+                metadata = self.extract_roles_metadata(install_msg)
+                metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
+                md = self.find_target_metadata(LoadType.ROLE, metadata_file, self.target_name)
             dependency_dir = tmp_src_dir
             dst_src_dir = self.target_path_mappings["src"]
             self.metadata.download_src_path = "{}.{}".format(dst_src_dir, self.target_name)
@@ -481,6 +499,7 @@ class DependencyDirPreparator(object):
         )
         install_msg = proc.stdout
         logger.debug("STDOUT: {}".format(install_msg))
+        logger.info("STDOUT: {}".format(install_msg))
         return install_msg
 
     def download_galaxy_collection_from_reqfile(self, requirements, output_dir, source_repository=""):
@@ -496,6 +515,7 @@ class DependencyDirPreparator(object):
         )
         install_msg = proc.stdout
         logger.debug("STDOUT: {}".format(install_msg))
+        logger.info("STDOUT: {}".format(install_msg))
         # return proc.stdout
 
     def install_galaxy_collection_from_targz(self, tarfile, output_dir):

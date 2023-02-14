@@ -61,7 +61,7 @@ class RiskAssessmentModelGenerator(object):
             input_list.append((i, num, _type, _name))
 
         if self._parallel:
-            joblib.Parallel(n_jobs=-1)(joblib.delayed(self.scan)(i, num, _type, _name) for (i, num, _type, _name) in input_list)
+            joblib.Parallel(n_jobs=-2)(joblib.delayed(self.scan)(i, num, _type, _name) for (i, num, _type, _name) in input_list)
         else:
             for (i, num, _type, _name) in input_list:
                 self.scan(i, num, _type, _name)
@@ -81,6 +81,7 @@ class RiskAssessmentModelGenerator(object):
                 download_only=self._download_only,
                 use_src_cache=use_src_cache,
             )
+            print(f"[{i+1}/{num}] finished ari scan: {type} {name}")
         except Exception:
             error = traceback.format_exc()
             self._scanner.save_error(error)

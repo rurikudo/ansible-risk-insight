@@ -681,7 +681,7 @@ class KeyConfigChangeDetail(AnnotationDetail):
             self.key = self._key_arg.vars
             if self._key_arg.is_mutable:
                 self.is_mutable_key = True
-        if self._state_arg.raw == "absent":
+        if self._state_arg and self._state_arg.raw == "absent":
             self.is_deletion = True
 
 

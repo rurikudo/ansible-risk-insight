@@ -340,8 +340,8 @@ class SingleScan(object):
         dep_dirs = ddp.prepare_dir(
             root_install=root_install,
             is_src_installed=self.is_src_installed(),
-            cache_enabled=self.use_src_cache,
-            cache_dir=os.path.join(self.root_dir, "archives"),
+            # cache_enabled=self.use_src_cache,
+            cache_enabled=True,
         )
 
         self.target_path = target_path
